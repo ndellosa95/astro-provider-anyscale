@@ -89,10 +89,12 @@ class AnyscaleJobTrigger(BaseTrigger):
                 }
             )
         except Exception as e:
+            msg = str(e)
+            self.log.error(msg, exc_info=True)
             yield TriggerEvent(
                 {
                     "state": str(JobState.FAILED),
-                    "message": str(e),
+                    "message": msg,
                     "job_id": self.job_id,
                 }
             )
