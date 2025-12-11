@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from datetime import timedelta
 from functools import cached_property
 from typing import Any
 
@@ -13,6 +14,7 @@ from anyscale.job.models import JobConfig, JobQueueConfig, JobState
 from anyscale.service.models import RayGCSExternalStorageConfig, ServiceConfig, ServiceState
 
 from anyscale_provider.hooks.anyscale import AnyscaleHook
+from anyscale_provider.triggers.anyscale import AnyscaleJobTrigger
 
 
 class SubmitAnyscaleJob(BaseOperator):
@@ -87,6 +89,7 @@ class SubmitAnyscaleJob(BaseOperator):
         poll_interval: float = 60,
         job_queue_config: JobQueueConfig | None = None,
         extra_job_params: dict[str, Any] | None = None,
+        deferrable: bool = False,
         *args: Any,
         **kwargs: Any,
     ) -> None:
@@ -111,6 +114,7 @@ class SubmitAnyscaleJob(BaseOperator):
         self.poll_interval = poll_interval
         self.job_queue_config = job_queue_config
         self.extra_job_params = extra_job_params
+        self.deferrable = deferrable
 
         self.job_id: str | None = None
 
@@ -131,7 +135,7 @@ class SubmitAnyscaleJob(BaseOperator):
         """Return an instance of the AnyscaleHook."""
         return AnyscaleHook(conn_id=self.conn_id)
 
-    def execute(self, context: Context) -> str:
+    def execute(self, context: Context) -> str:  # noqa: C901
         """
         Execute the job submission to Anyscale.
 
@@ -172,14 +176,15 @@ class SubmitAnyscaleJob(BaseOperator):
         self.log.info(f"Submitted Anyscale job with ID: {self.job_id}")
 
         # Failure states based in https://docs.anyscale.com/reference/job-api#jobstate
-        failure_states = [JobState.FAILED, JobState.UNKNOWN]
+        failure_states = frozenset([JobState.FAILED, JobState.UNKNOWN])
+        running_states = frozenset([JobState.STARTING, JobState.RUNNING])
 
         # TODO: Leverage the Airflow triggerer mechanism to poll the job status.
         # This can only happen once we can check asynchronously the Anyscale job status,
         # something that is currently not possible with the latest Anyscale SDK version (0.26.75).
         # A possible path forward is to use the Anyscale API directly to enable this capability.
 
-        if self.wait_for_completion:
+        if self.wait_for_completion and not self.deferrable:
             has_succeeded = False
             # This loop will complete running in one out of two scenarios:
             for _ in range(int(self.job_timeout_seconds // self.poll_interval)):
@@ -192,13 +197,23 @@ class SubmitAnyscaleJob(BaseOperator):
                 elif current_state in failure_states:
                     raise AirflowException(f"Job {self.job_id} failed.")
                 time.sleep(self.poll_interval)
-                job_status = self.hook.get_job_status(self.job_id)
             if not has_succeeded:
                 raise AirflowException(f"Job {self.job_id} was not completed after {self.job_timeout_seconds} seconds.")
         else:
             job_status = self.hook.get_job_status(self.job_id)
             current_state = str(job_status.state)
             self.log.info(f"Current job state for {self.job_id} is: {current_state}")
+            if self.deferrable and current_state in running_states:
+                self.defer(
+                    trigger=AnyscaleJobTrigger(
+                        conn_id=self.conn_id,
+                        job_id=self.job_id,
+                        poll_interval=self.poll_interval,
+                        fetch_logs=self.fetch_logs,
+                    ),
+                    method_name="execute_complete",
+                    timeout=timedelta(seconds=self.job_timeout_seconds),
+                )
             if current_state in failure_states:
                 raise AirflowException(f"Job {self.job_id} failed.")
 

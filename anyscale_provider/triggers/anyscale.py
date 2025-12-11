@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-from functools import cached_property, partial
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
+from functools import cached_property
+from typing import Any
 
 from airflow.triggers.base import BaseTrigger, TriggerEvent
 from anyscale.job.models import JobState
@@ -55,6 +56,11 @@ class AnyscaleJobTrigger(BaseTrigger):
             },
         )
 
+    def print_logs(self, run_name: str) -> None:
+        logs = self.hook.get_job_logs(job_id=self.job_id, run=run_name)
+        for log in logs.splitlines():
+            print(log)
+
     async def run(self) -> AsyncIterator[TriggerEvent]:
         """
         Monitor the job status periodically until a terminal state is reached or an error occurs.
@@ -62,23 +68,20 @@ class AnyscaleJobTrigger(BaseTrigger):
         :yield: TriggerEvent indicating the current status of the job.
         """
         try:
-            # Loop until reach the terminal state
-            # TODO: Make this call async
-            while not self._is_terminal_state(self.job_id):
+            loop = asyncio.get_event_loop()
+            while True:
+                job_status = await loop.run_in_executor(None, self.hook.get_job_status, self.job_id)
+                job_state = job_status.state
+                self.log.info(f"Current job state for {job_status.runs[-1].name} is: {job_state}")
+                if job_state not in (JobState.STARTING, JobState.RUNNING):
+                    break
                 await asyncio.sleep(self.poll_interval)
 
             if self.fetch_logs:
-                job_status = self.hook.get_job_status(self.job_id)
-                loop = asyncio.get_event_loop()
-                logs = await loop.run_in_executor(
-                    None, partial(self.hook.get_job_logs, job_id=self.job_id, run=job_status.runs[-1].name)
-                )
-
+                logs = await loop.run_in_executor(None, self.hook.get_job_logs, self.job_id, job_status.runs[-1].name)
                 for log in logs.split("\n"):
                     print(log)
 
-            # Once out of the loop, the job has reached a terminal status
-            job_status = self.hook.get_job_status(self.job_id)
             job_state = str(job_status.state)
             self.log.info(f"Current job status for {self.job_id} is: {job_state}")
             yield TriggerEvent(
@@ -96,17 +99,6 @@ class AnyscaleJobTrigger(BaseTrigger):
                     "job_id": self.job_id,
                 }
             )
-
-    def _is_terminal_state(self, job_id: str) -> bool:
-        """
-        Check if the job has reached a terminal state.
-
-        :param job_id: The ID of the job to check the status for.
-        :return: True if the job is in a terminal state, False otherwise.
-        """
-        job_state = self.hook.get_job_status(job_id).state
-        self.log.info(f"Current job state for {job_id} is: {job_state}")
-        return job_state not in (JobState.STARTING, JobState.RUNNING)
 
 
 class AnyscaleServiceTrigger(BaseTrigger):
