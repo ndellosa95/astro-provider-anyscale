@@ -219,6 +219,29 @@ class SubmitAnyscaleJob(BaseOperator):
 
         return self.job_id
 
+    def execute_complete(self, context: Context, event: Any) -> str:
+        """
+        Complete the execution of the job based on the trigger event.
+
+        This method is called when the trigger fires and provides the final status
+        of the job. It raises an exception if the job failed.
+
+        :param context: The Airflow context.
+        :param event: The event data from the trigger.
+        :return: None
+        """
+        current_job_id: str = event["job_id"]
+
+        if event["state"] == JobState.FAILED:
+            self.log.error(f"Anyscale job {current_job_id} ended with state: {event['state']}")
+            maybe_tb = event.get("traceback")
+            if maybe_tb:
+                self.log.error(maybe_tb)
+            raise AirflowException(f"Job {current_job_id} failed with error {event['message']}")
+
+        self.log.info(f"Anyscale job {current_job_id} completed with state: {event['state']}")
+        return current_job_id
+
 
 class RolloutAnyscaleService(BaseOperator):
     """

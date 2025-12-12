@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import traceback
 from collections.abc import AsyncIterator
 from functools import cached_property
 from typing import Any
@@ -73,14 +74,19 @@ class AnyscaleJobTrigger(BaseTrigger):
             while True:
                 job_status = await get_job_status(self.job_id)
                 job_state = job_status.state
-                self.log.info(f"Current job state for {job_status.runs[-1].name} is: {job_state}")
+                self.log.info(f"Current job state for {self.job_id} is: {job_state}")
                 if job_state not in (JobState.STARTING, JobState.RUNNING):
                     break
                 await asyncio.sleep(self.poll_interval)
 
             if self.fetch_logs:
-                print_logs = sync_to_async(self.print_logs)
-                await print_logs(job_status.runs[-1].name)
+                if job_status.runs:
+                    print_logs = sync_to_async(self.print_logs)
+                    await print_logs(job_status.runs[-1].name)
+                else:
+                    self.log.warning(
+                        f"Cannot retrieve logs from job {self.job_id} because no run IDs were returned with job status!"
+                    )
 
             job_state = str(job_status.state)
             self.log.info(f"Current job status for {self.job_id} is: {job_state}")
@@ -97,6 +103,7 @@ class AnyscaleJobTrigger(BaseTrigger):
                     "state": str(JobState.FAILED),
                     "message": str(e),
                     "job_id": self.job_id,
+                    "traceback": traceback.format_exc(),
                 }
             )
 

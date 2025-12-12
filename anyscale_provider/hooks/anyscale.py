@@ -8,6 +8,7 @@ from typing import Any
 import click
 from airflow.configuration import conf
 from airflow.exceptions import AirflowException
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 try:
     from airflow.sdk import BaseHook
@@ -16,6 +17,7 @@ except ImportError:
 from airflow.hooks.base import BaseHook
 from anyscale import Anyscale
 from anyscale.job.models import JobConfig, JobStatus
+from anyscale.sdk.anyscale_client.exceptions import ApiException
 from anyscale.service.models import ServiceConfig, ServiceStatus
 
 
@@ -135,6 +137,7 @@ class AnyscaleHook(BaseHook):  # type: ignore[misc]
 
         return service_id
 
+    @retry(retry=retry_if_exception_type(ApiException), wait=wait_exponential(max=10), stop=stop_after_attempt(5))
     def get_job_status(self, job_id: str) -> JobStatus:
         """
         Fetch the status of a job.
@@ -192,6 +195,7 @@ class AnyscaleHook(BaseHook):  # type: ignore[misc]
             raise AirflowException(f"Service termination failed with error: {e}")
         return True
 
+    @retry(retry=retry_if_exception_type(ApiException), wait=wait_exponential(max=10), stop=stop_after_attempt(5))
     def get_job_logs(self, job_id: str, run: str | None = None) -> str:
         """
          Fetch the logs for a job.
