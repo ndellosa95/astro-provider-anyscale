@@ -8,6 +8,7 @@ from typing import Any
 from airflow.triggers.base import BaseTrigger, TriggerEvent
 from anyscale.job.models import JobState
 from anyscale.service.models import ServiceState
+from asgiref.sync import sync_to_async
 
 from anyscale_provider.hooks.anyscale import AnyscaleHook
 
@@ -68,9 +69,9 @@ class AnyscaleJobTrigger(BaseTrigger):
         :yield: TriggerEvent indicating the current status of the job.
         """
         try:
-            loop = asyncio.get_event_loop()
+            get_job_status = sync_to_async(self.hook.get_job_status)
             while True:
-                job_status = await loop.run_in_executor(None, self.hook.get_job_status, self.job_id)
+                job_status = await get_job_status(self.job_id)
                 job_state = job_status.state
                 self.log.info(f"Current job state for {job_status.runs[-1].name} is: {job_state}")
                 if job_state not in (JobState.STARTING, JobState.RUNNING):
@@ -78,9 +79,8 @@ class AnyscaleJobTrigger(BaseTrigger):
                 await asyncio.sleep(self.poll_interval)
 
             if self.fetch_logs:
-                logs = await loop.run_in_executor(None, self.hook.get_job_logs, self.job_id, job_status.runs[-1].name)
-                for log in logs.split("\n"):
-                    print(log)
+                print_logs = sync_to_async(self.print_logs)
+                await print_logs(job_status.runs[-1].name)
 
             job_state = str(job_status.state)
             self.log.info(f"Current job status for {self.job_id} is: {job_state}")
