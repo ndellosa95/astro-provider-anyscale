@@ -203,7 +203,9 @@ class SubmitAnyscaleJob(BaseOperator):
             job_status = self.hook.get_job_status(self.job_id)
             current_state = str(job_status.state)
             self.log.info(f"Current job state for {self.job_id} is: {current_state}")
-            if self.deferrable and current_state in running_states:
+            if current_state in failure_states:
+                raise AirflowException(f"Job {self.job_id} failed.")
+            if self.wait_for_completion and self.deferrable and current_state in running_states:
                 self.defer(
                     trigger=AnyscaleJobTrigger(
                         conn_id=self.conn_id,
@@ -214,8 +216,6 @@ class SubmitAnyscaleJob(BaseOperator):
                     method_name="execute_complete",
                     timeout=timedelta(seconds=self.job_timeout_seconds),
                 )
-            if current_state in failure_states:
-                raise AirflowException(f"Job {self.job_id} failed.")
 
         return self.job_id
 
