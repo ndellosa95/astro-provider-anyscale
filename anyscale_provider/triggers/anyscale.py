@@ -72,7 +72,7 @@ class AnyscaleJobTrigger(BaseTrigger):
         try:
             get_job_status = sync_to_async(self.hook.get_job_status)
             while True:
-                job_status = await get_job_status(self.job_id)
+                job_status = await asyncio.wait_for(get_job_status(self.job_id), timeout=self.poll_interval)
                 job_state = job_status.state
                 self.log.info(f"Current job state for {self.job_id} is: {job_state}")
                 if job_state not in (JobState.STARTING, JobState.RUNNING):
