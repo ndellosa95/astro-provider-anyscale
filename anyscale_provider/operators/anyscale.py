@@ -90,6 +90,7 @@ class SubmitAnyscaleJob(BaseOperator):
         job_queue_config: JobQueueConfig | None = None,
         extra_job_params: dict[str, Any] | None = None,
         deferrable: bool = False,
+        timeout_wait_interval: float = 60,
         *args: Any,
         **kwargs: Any,
     ) -> None:
@@ -115,7 +116,7 @@ class SubmitAnyscaleJob(BaseOperator):
         self.job_queue_config = job_queue_config
         self.extra_job_params = extra_job_params
         self.deferrable = deferrable
-
+        self.timeout_wait_interval = timeout_wait_interval
         self.job_id: str | None = None
 
     def on_kill(self) -> None:
@@ -211,6 +212,7 @@ class SubmitAnyscaleJob(BaseOperator):
                         conn_id=self.conn_id,
                         job_id=self.job_id,
                         poll_interval=self.poll_interval,
+                        timeout_wait_interval=self.timeout_wait_interval,
                         fetch_logs=self.fetch_logs,
                     ),
                     method_name="execute_complete",

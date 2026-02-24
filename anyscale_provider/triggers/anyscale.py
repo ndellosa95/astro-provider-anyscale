@@ -27,11 +27,19 @@ class AnyscaleJobTrigger(BaseTrigger):
     :param poll_interval: Optional. Interval in seconds between status checks. Defaults to 60 seconds.
     """
 
-    def __init__(self, conn_id: str, job_id: str, poll_interval: float = 60, fetch_logs: bool = True):
+    def __init__(
+        self,
+        conn_id: str,
+        job_id: str,
+        poll_interval: float = 60,
+        timeout_wait_interval: float = 60,
+        fetch_logs: bool = True,
+    ):
         super().__init__()  # type: ignore[no-untyped-call]
         self.conn_id = conn_id
         self.job_id = job_id
         self.poll_interval = poll_interval
+        self.timeout_wait_interval = timeout_wait_interval
         self.fetch_logs = fetch_logs
 
     @cached_property
@@ -55,6 +63,8 @@ class AnyscaleJobTrigger(BaseTrigger):
                 "conn_id": self.conn_id,
                 "job_id": self.job_id,
                 "poll_interval": self.poll_interval,
+                "timeout_wait_interval": self.timeout_wait_interval,
+                "fetch_logs": self.fetch_logs,
             },
         )
 
@@ -69,10 +79,20 @@ class AnyscaleJobTrigger(BaseTrigger):
 
         :yield: TriggerEvent indicating the current status of the job.
         """
+        backoff_factor = 1
         try:
             get_job_status = sync_to_async(self.hook.get_job_status)
             while True:
-                job_status = await asyncio.wait_for(get_job_status(self.job_id), timeout=60)
+                try:
+                    job_status = await asyncio.wait_for(get_job_status(self.job_id), timeout=self.timeout_wait_interval)
+                except asyncio.TimeoutError:
+                    backoff_factor *= 2
+                    backoff_interval = self.timeout_wait_interval * backoff_factor
+                    self.log.warning(
+                        f"Timeout waiting for job status for {self.job_id}, waiting for {backoff_interval} seconds before retrying"
+                    )
+                    await asyncio.sleep(backoff_interval)
+                    continue
                 job_state = job_status.state
                 self.log.info(f"Current job state for {self.job_id} is: {job_state}")
                 if job_state not in (JobState.STARTING, JobState.RUNNING):
