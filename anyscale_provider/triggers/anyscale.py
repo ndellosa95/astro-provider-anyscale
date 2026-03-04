@@ -25,6 +25,7 @@ class AnyscaleJobTrigger(BaseTrigger):
     :param conn_id: Required. The connection ID for Anyscale.
     :param job_id: Required. The ID of the job to monitor.
     :param poll_interval: Optional. Interval in seconds between status checks. Defaults to 60 seconds.
+    :param timeout_wait_interval: Optional. Timeout in seconds to wait for the job status. Defaults to 60 seconds.
     """
 
     def __init__(
@@ -33,14 +34,12 @@ class AnyscaleJobTrigger(BaseTrigger):
         job_id: str,
         poll_interval: float = 60,
         timeout_wait_interval: float = 60,
-        fetch_logs: bool = True,
     ):
         super().__init__()  # type: ignore[no-untyped-call]
         self.conn_id = conn_id
         self.job_id = job_id
         self.poll_interval = poll_interval
         self.timeout_wait_interval = timeout_wait_interval
-        self.fetch_logs = fetch_logs
 
     @cached_property
     def hook(self) -> AnyscaleHook:
@@ -64,14 +63,8 @@ class AnyscaleJobTrigger(BaseTrigger):
                 "job_id": self.job_id,
                 "poll_interval": self.poll_interval,
                 "timeout_wait_interval": self.timeout_wait_interval,
-                "fetch_logs": self.fetch_logs,
             },
         )
-
-    def print_logs(self, run_name: str) -> None:
-        logs = self.hook.get_job_logs(job_id=self.job_id, run=run_name)
-        for log in logs.splitlines():
-            print(log)
 
     async def run(self) -> AsyncIterator[TriggerEvent]:
         """
@@ -98,15 +91,6 @@ class AnyscaleJobTrigger(BaseTrigger):
                 if job_state not in (JobState.STARTING, JobState.RUNNING):
                     break
                 await asyncio.sleep(self.poll_interval)
-
-            if self.fetch_logs:
-                if job_status.runs:
-                    print_logs = sync_to_async(self.print_logs)
-                    await print_logs(job_status.runs[-1].name)
-                else:
-                    self.log.warning(
-                        f"Cannot retrieve logs from job {self.job_id} because no run IDs were returned with job status!"
-                    )
 
             job_state = str(job_status.state)
             self.log.info(f"Current job status for {self.job_id} is: {job_state}")
