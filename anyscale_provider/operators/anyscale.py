@@ -61,7 +61,6 @@ class SubmitAnyscaleJob(BaseOperator):
         "cloud",
         "project",
         "max_retries",
-        "fetch_logs",
         "wait_for_completion",
         "job_timeout_seconds",
         "poll_interval",
@@ -83,7 +82,6 @@ class SubmitAnyscaleJob(BaseOperator):
         cloud: str | None = None,
         project: str | None = None,
         max_retries: int = 1,
-        fetch_logs: bool = True,
         wait_for_completion: bool = True,
         job_timeout_seconds: float = 3600,
         poll_interval: float = 60,
@@ -109,7 +107,6 @@ class SubmitAnyscaleJob(BaseOperator):
         self.cloud = cloud
         self.project = project
         self.max_retries = max_retries
-        self.fetch_logs = fetch_logs
         self.wait_for_completion = wait_for_completion
         self.job_timeout_seconds = job_timeout_seconds
         self.poll_interval = poll_interval
@@ -213,7 +210,6 @@ class SubmitAnyscaleJob(BaseOperator):
                         job_id=self.job_id,
                         poll_interval=self.poll_interval,
                         timeout_wait_interval=self.timeout_wait_interval,
-                        fetch_logs=self.fetch_logs,
                     ),
                     method_name="execute_complete",
                     timeout=timedelta(seconds=self.job_timeout_seconds),
